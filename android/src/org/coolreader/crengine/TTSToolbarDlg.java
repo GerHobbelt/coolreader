@@ -110,6 +110,7 @@ public class TTSToolbarDlg implements Settings {
 
 	private File wordTimingFile;
 	private File sentenceInfoFile;
+	private File sentenceTimingCacheFile;
 	private WordTimingAudiobookMatcher wordTimingAudiobookMatcher;
 	private SentenceInfo currentSentenceInfo;
 
@@ -210,9 +211,17 @@ public class TTSToolbarDlg implements Settings {
 
 	private SentenceInfo fetchSelectedSentenceInfo() {
 		if(wordTimingAudiobookMatcher != null && mCurrentSelection != null){
-			return wordTimingAudiobookMatcher.getSentence(mCurrentSelection.startPos);
+			SentenceInfo cur = wordTimingAudiobookMatcher.getSentence(mCurrentSelection.startPos);
+			if(cur == null){
+				// use the previous sentenceInfo if current selection is not in sentenceinfo cache
+				log.i("WARNING: reusing previous sentenceinfo for missing selection\n");
+				cur = currentSentenceInfo;
+			}
+			currentSentenceInfo = cur;
+		}else{
+			currentSentenceInfo = null;
 		}
-		return null;
+		return currentSentenceInfo;
 	}
 
 	private String formatDurationHHHMMSS(double duration) {
@@ -232,8 +241,8 @@ public class TTSToolbarDlg implements Settings {
 			mAudioProgressTextView.setVisibility(View.VISIBLE);
 			mAudioProgressTextView.setText(String.format(Locale.getDefault(),
 				"%s / %s",
-				formatDurationHHHMMSS(sentenceInfo.startTimeInBook),
-				formatDurationHHHMMSS(sentenceInfo.totalBookDuration)));
+				formatDurationHHHMMSS(sentenceInfo.sentenceTiming.startTimeInBook),
+				formatDurationHHHMMSS(sentenceInfo.sentenceTiming.totalBookDuration)));
 
 			mSbSpeed.setVisibility(View.GONE);
 		}
@@ -256,9 +265,9 @@ public class TTSToolbarDlg implements Settings {
 				if(allowUseAudiobook){
 					SentenceInfo sentenceInfo = fetchSelectedSentenceInfo();
 					setAudioBookProgressDisplay(sentenceInfo);
-					if(sentenceInfo != null && sentenceInfo.audioFile != null){
+					if(sentenceInfo != null && sentenceInfo.sentenceTiming.audioFile != null){
 						mTTSControl.bind(ttsbinder -> {
-							ttsbinder.setAudioFile(sentenceInfo.audioFile, sentenceInfo.startTime);
+							ttsbinder.setAudioFile(sentenceInfo.sentenceTiming.audioFile, sentenceInfo.sentenceTiming.startTime);
 						});
 					}
 				}else{
@@ -396,7 +405,7 @@ public class TTSToolbarDlg implements Settings {
 				ttsbinder.stop(null);
 				SentenceInfo sentenceInfo = fetchSelectedSentenceInfo();
 				if(sentenceInfo != null){
-					ttsbinder.setAudioFile(sentenceInfo.audioFile, sentenceInfo.startTime);
+					ttsbinder.setAudioFile(sentenceInfo.sentenceTiming.audioFile, sentenceInfo.sentenceTiming.startTime);
 				}
 				initAudiobookWordTimings(null);
 				moveSelection(ReaderCommand.DCMD_SELECT_FIRST_SENTENCE, null);
@@ -763,6 +772,7 @@ public class TTSToolbarDlg implements Settings {
 		BookInfo bookInfo = mReaderView.getBookInfo();
 		wordTimingFile = null;
 		sentenceInfoFile = null;
+		sentenceTimingCacheFile = null;
 		if (null != bookInfo) {
 			FileInfo fileInfo = bookInfo.getFileInfo();
 			if (null != fileInfo) {
@@ -775,9 +785,11 @@ public class TTSToolbarDlg implements Settings {
 				String pathName = fileInfo.getPathName();
 				String wordTimingPath = pathName.replaceAll("\\.\\w+$", ".wordtiming");
 				String sentenceInfoPath = pathName.replaceAll("\\.\\w+$", ".sentenceinfo");
+				String sentenceTimingCachePath = pathName.replaceAll("\\.\\w+$", ".sentencetimingcache");
 				if(wordTimingPath.matches(".*\\.wordtiming$")){
 					wordTimingFile = new File(wordTimingPath);
 					sentenceInfoFile = new File(sentenceInfoPath);
+					sentenceTimingCacheFile = new File(sentenceTimingCachePath);
 				}
 			}
 		}
@@ -839,8 +851,12 @@ public class TTSToolbarDlg implements Settings {
 							}
 							wordTimingAudiobookMatcher = new WordTimingAudiobookMatcher(wordTimingFile, allSentences);
 
-							//can be very long
-							wordTimingAudiobookMatcher.parseWordTimingsFile();
+							wordTimingAudiobookMatcher.maybeReadSentenceTimingCache(sentenceTimingCacheFile);
+							if(!wordTimingAudiobookMatcher.isSentenceTimingReady()){
+								//can be very long
+								wordTimingAudiobookMatcher.parseWordTimingsFile();
+								wordTimingAudiobookMatcher.maybeWriteSentenceTimingCache(sentenceTimingCacheFile);
+							}
 
 							moveSelection(ReaderCommand.DCMD_SELECT_FIRST_SENTENCE, null);
 							audioBookPosHandler.postDelayed(audioBookPosRunnable, 500);

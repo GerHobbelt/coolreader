@@ -54,6 +54,7 @@ import org.coolreader.R;
 import org.coolreader.crengine.L;
 import org.coolreader.crengine.Logger;
 import org.coolreader.crengine.SentenceInfo;
+import org.coolreader.crengine.Utils;
 import org.coolreader.db.BaseService;
 import org.coolreader.db.Task;
 
@@ -1312,8 +1313,8 @@ public class TTSControlService extends BaseService {
 				boolean isAfterSentence = false;
 				if(sentenceInfo != null && sentenceInfo.nextSentence != null){
 					SentenceInfo nextSentenceInfo = sentenceInfo.nextSentence;
-					if(sentenceInfo.audioFile == TTSControlService.this.audioFile){
-						if(nextSentenceInfo.isFirstSentenceInAudioFile){
+					if(sentenceInfo.sentenceTiming.audioFile == TTSControlService.this.audioFile){
+						if(nextSentenceInfo.sentenceTiming.isFirstSentenceInAudioFile){
 							if(mState == State.PLAYING && (mMediaPlayer == null || !mMediaPlayer.isPlaying())){
 								//this is the last sentence in the file, and the media player ended
 								isAfterSentence = true;
@@ -1321,7 +1322,7 @@ public class TTSControlService extends BaseService {
 						}else{
 							if(mMediaPlayer != null && mMediaPlayer.isPlaying()){
 								double curPos = mMediaPlayer.getCurrentPosition() / 1000.0;
-								if(curPos >= nextSentenceInfo.startTime){
+								if(curPos >= nextSentenceInfo.sentenceTiming.startTime){
 									isAfterSentence = true;
 								}
 							}
@@ -1389,11 +1390,7 @@ public class TTSControlService extends BaseService {
 		if(mMediaPlayer != null && mMediaPlayer.isPlaying()){
 			return;
 		}
-		File fileToPlay = audioFile;
-		if(fileToPlay != null && !fileToPlay.exists()){
-			fileToPlay = getAlternativeAudioFile(fileToPlay);
-		}
-
+		File fileToPlay = Utils.getAlternativeFile(audioFile, Utils.AUDIO_FILE_EXTS);
 		if(fileToPlay == null || !fileToPlay.exists()){
 			return;
 		}
@@ -1536,38 +1533,6 @@ public class TTSControlService extends BaseService {
 			notification.contentIntent = pendingIntent;
 		}
 		return notification;
-	}
-
-	private File getAlternativeAudioFile(File origAudioFile) {
-		if(origAudioFile == null) {
-			return null;
-		}
-		String fileNoExt = origAudioFile.toString().replaceAll("\\.\\w+$", "");
-		File dir = origAudioFile.getParentFile();
-		if(dir.exists() && dir.isDirectory()) {
-			Map<String, List<File>> filesByExt = new HashMap<>();
-			File firstFile = null;
-			for(File file : dir.listFiles()) {
-				if(!file.toString().startsWith(fileNoExt + ".")){
-					continue;
-				}
-				String ext = file.toString().toLowerCase().replaceAll(".*\\.", "");
-				if(filesByExt.get(ext) == null) {
-					filesByExt.put(ext, new ArrayList<>());
-				}
-				filesByExt.get(ext).add(file);
-				if(firstFile == null) {
-					firstFile = file;
-				}
-			}
-			for(String ext : new String[]{"flac", "wav", "m4a", "ogg", "mp3"}) {
-				if(filesByExt.get(ext) != null){
-					return filesByExt.get(ext).get(0);
-				}
-			}
-			return firstFile;
-		}
-		return null;
 	}
 
 	private void setupTTSHandlers() {
